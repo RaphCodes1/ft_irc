@@ -78,7 +78,7 @@ void Server::ServerInit()
     try{
         while(Server::Signal == false){
             if((poll(&fds[0],fds.size(), -1) == -1) || (Server::Signal == true))
-            throw(std::runtime_error("poll failed"));
+            throw(std::runtime_error("shutting down..."));
             
             for(size_t i = 0; i < fds.size(); i++){
                 if(fds[i].revents & POLLIN)
