@@ -9,6 +9,8 @@
 #include <arpa/inet.h>
 #include <poll.h>
 #include <csignal>
+#include <cstring>
+#include "utils.hpp"
 
 class Client
 {
@@ -40,7 +42,7 @@ class Server
         void ServerInit();
         void SerSocket();
         void AcceptNewClient();
-        void RecieveNewData(int fd);
+        void ReceiveNewData(int fd);
 
         static void SignalHandler(int signum);
 
