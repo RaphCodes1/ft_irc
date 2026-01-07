@@ -159,6 +159,40 @@ void Server::ReceiveNewData(int fd){
     else
     {
         buff[bytes] = '\0';
-        std::cout << "Client <" << fd << ">: " << buff << std::endl;
+        // std::cout << "Client <" << fd << ">: " << buff << std::endl;
+        // ParseCommand(fd, buff);
+        // Find client
+        Client *cli = NULL;
+        for(size_t i = 0; i < clients.size(); i++){
+            if(clients[i]->GetFd() == fd){
+                cli = clients[i];
+                break;
+            }
+        }
+        if (cli) {
+            cli->setBuffer(cli->getBuffer() + buff);
+            std::string tmp = cli->getBuffer();
+            size_t pos = 0;
+            while ((pos = tmp.find("\n")) != std::string::npos) {
+                std::string line = tmp.substr(0, pos);
+                ParseCommand(cli, line);
+                tmp.erase(0, pos + 1);
+            }
+            cli->setBuffer(tmp);
+        }
     }
+}
+
+Channel* Server::GetChannel(std::string name){
+    for (size_t i = 0; i < channels.size(); i++){
+        if(channels[i]->GetName() == name)
+            return channels[i];
+    }
+    return NULL;
+}
+
+Channel* Server::CreateChannel(std::string name){
+    Channel *newChannel = new Channel(name);
+    channels.push_back(newChannel);
+    return newChannel;
 }
