@@ -19,7 +19,6 @@ $(NAME): $(OBJS)
 $(OBJSDIR)/%.o: %.cpp
 	mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
-	@echo "$(OBJSDIR)/$< compiled"
 
 clean:
 	rm -rf $(OBJSDIR)
