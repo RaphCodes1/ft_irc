@@ -67,8 +67,7 @@ int main(int ac, char **av)
         std::cout << "------------------------------------------------" << std::endl;
         std::cout << "User Input: ";
         
-        Server server;
-        // std::cout << "----SERVER----" << std::endl;
+        Server server(port, pass);
         try{
             signal(SIGINT, Server::SignalHandler);
             signal(SIGQUIT, Server::SignalHandler);

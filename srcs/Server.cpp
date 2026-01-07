@@ -1,5 +1,17 @@
 #include "ircserv.hpp"
 
+Server::Server(int port, std::string password): Port(port), Password(password), SerSocketFd(-1){
+    signal(SIGINT, SignalHandler);
+    signal(SIGTERM, SignalHandler);
+    signal(SIGSEGV, SignalHandler);
+};
+
+Server::~Server(){
+    CloseFds();
+};
+
+bool Server::Signal = false;
+
 void Server::ClearClients(int fd)
 {
     for(size_t i = 0; i < fds.size(); i++){
@@ -11,15 +23,13 @@ void Server::ClearClients(int fd)
     }
 
     for(size_t i = 0; i < clients.size(); i++){
-        if(clients[i].GetFd() == fd)
+        if(clients[i]->GetFd() == fd)
         {
             clients.erase(clients.begin() + i);
             break;
         }
     }
 }
-
-bool Server::Signal = false;
 
 void Server::SignalHandler(int signum)
 {
@@ -30,8 +40,8 @@ void Server::SignalHandler(int signum)
 
 void Server::CloseFds(){
     for(size_t i = 0; i < clients.size();i++){
-        std::cout << RED << "Client " << clients[i].GetFd() << " Disconnected" << RESET << std::endl;
-        close(clients[i].GetFd());
+        std::cout << RED << "Client " << clients[i]->GetFd() << " Disconnected" << RESET << std::endl;
+        close(clients[i]->GetFd());
     }
     if(SerSocketFd != -1){
         std::cout << RED << "Server <" << SerSocketFd << "> Disconnected" << RESET << std::endl;
@@ -69,7 +79,6 @@ void Server::SerSocket(){
 
 void Server::ServerInit()
 {   
-    this->Port = 6767;
     SerSocket();
 
     std::cout << GREEN << "Server started on port " << this->Port << RESET << std::endl;
@@ -98,26 +107,24 @@ void Server::ServerInit()
 }
 
 void Server::AcceptNewClient(){
-    Client cli;
     struct sockaddr_in addr;
     struct pollfd NewPoll;
     socklen_t len = sizeof(addr);
-
+    
     int incofd = accept(SerSocketFd, (struct sockaddr *)&addr, &len);
     if(incofd < 0)
     {
         std::cerr << "Accept failed" << std::endl;
         return;
     }
-
+    
     if(fcntl(incofd, F_SETFL, O_NONBLOCK) < 0)
     {
         std::cerr << "fcntl() failed" << std::endl;
         return;
     }
-
-    cli.setFd(incofd);
-    cli.setIpAdd(inet_ntoa(addr.sin_addr));
+    
+    Client* cli = new Client(incofd, getClientHostname(incofd));
     clients.push_back(cli);
 
     NewPoll.fd = incofd;
@@ -126,6 +133,15 @@ void Server::AcceptNewClient(){
     fds.push_back(NewPoll);
 
     std::cout << GREEN << "Client <" << incofd << "> Connected" << RESET << std::endl;
+}
+
+std::string Server::getClientHostname(int clientFd){
+    struct sockaddr_in addr;
+    socklen_t len = sizeof(addr);
+    if(getpeername(clientFd, (struct sockaddr *)&addr, &len) < 0){
+        return "unknown hostname";
+    }
+    return inet_ntoa(addr.sin_addr);
 }
 
 void Server::ReceiveNewData(int fd){

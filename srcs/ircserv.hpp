@@ -1,3 +1,6 @@
+#ifndef IRCSERV_HPP
+#define IRCSERV_HPP
+
 #include <iostream>
 #include <vector>
 #include <string>
@@ -12,42 +15,12 @@
 #include <cstring>
 #include <sstream>
 #include <cctype>
+
+#include "Server.hpp"
+#include "Client.hpp"
 #include "utils.hpp"
 
-class Client
-{
-    private:
-        int Fd;
-        std::string IPadd;
-    public:
-        Client(){};
-        ~Client(){};
-        int GetFd(){return Fd;};
+class Server;
+class Client;
 
-        void setFd(int fd){Fd = fd;};
-        void setIpAdd(std::string ipadd){IPadd = ipadd;};
-};
-
-class Server
-{
-    private:
-        int Port;
-        int SerSocketFd;
-        static bool Signal;
-        std::vector<Client> clients;
-        std::vector<struct pollfd> fds;
-    
-    public:
-        Server(){SerSocketFd = -1;};
-        ~Server(){};
-
-        void ServerInit();
-        void SerSocket();
-        void AcceptNewClient();
-        void ReceiveNewData(int fd);
-
-        static void SignalHandler(int signum);
-
-        void CloseFds();
-        void ClearClients(int fd);
-};
+#endif
