@@ -24,7 +24,7 @@ class Server
         void ServerInit();
         void SerSocket();
         void AcceptNewClient();
-        void ReceiveNewData(int fd);
+        bool ReceiveNewData(int fd);
         int GetPort(){return Port;};
         std::string GetPassword(){return Password;};
         std::string getClientHostname(int clientFd);
@@ -33,14 +33,18 @@ class Server
         void User(Client *cli, std::string cmd);
         void Pass(Client *cli, std::string cmd);
         void Join(Client *cli, std::string cmd);
+        void Part(Client *cli, std::string cmd);
         void Privmsg(Client *cli, std::string cmd);
         void Cap(Client *cli, std::string cmd);
+        void Ping(Client *cli, std::string cmd);
         void ParseCommand(Client *cli, std::string cmd);
         
         bool CheckPassword(std::string pass);
 
         Channel* GetChannel(std::string name);
         Channel* CreateChannel(std::string name);
+        
+        void Welcome(Client *cli);
 
         static void SignalHandler(int signum);
 

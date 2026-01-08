@@ -11,6 +11,7 @@ class Channel
     private:
         std::string Name;
         std::vector<Client*> Clients;
+        std::vector<Client*> Admins;
         // std::string Topic; // For later
 
     public:
@@ -23,6 +24,10 @@ class Channel
         void RemoveClient(Client *cli);
         bool IsClientInChannel(Client *cli); // Helper
         
+        void AddAdmin(Client *cli);
+        void RemoveAdmin(Client *cli);
+        bool IsAdmin(Client *cli);
+
         void Broadcast(std::string msg, int excludeFd = -1);
         std::vector<Client*> GetClients() const { return Clients; }
 };

@@ -14,17 +14,41 @@ bool Server::Signal = false;
 
 void Server::ClearClients(int fd)
 {
+    // Find the client object
+    Client *cli = NULL;
+    for(size_t i = 0; i < clients.size(); i++){
+        if(clients[i]->GetFd() == fd) {
+            cli = clients[i];
+            break;
+        }
+    }
+
+    if (cli) {
+        // Remove client from all channels and delete empty channels
+        for (size_t i = 0; i < channels.size(); i++) {
+            if (channels[i]->IsClientInChannel(cli)) {
+                channels[i]->RemoveClient(cli);
+                if (channels[i]->GetClients().empty()) {
+                    delete channels[i];
+                    channels.erase(channels.begin() + i);
+                    i--;
+                }
+            }
+        }
+    }
+
     for(size_t i = 0; i < fds.size(); i++){
         if(fds[i].fd == fd)
-            {
-                fds.erase(fds.begin() + i);
-                break;
-            }
+        {
+            fds.erase(fds.begin() + i);
+            break;
+        }
     }
 
     for(size_t i = 0; i < clients.size(); i++){
         if(clients[i]->GetFd() == fd)
         {
+            delete clients[i];
             clients.erase(clients.begin() + i);
             break;
         }
@@ -95,7 +119,14 @@ void Server::ServerInit()
                     if(fds[i].fd == SerSocketFd)
                         AcceptNewClient();
                     else
-                        ReceiveNewData(fds[i].fd);
+                    {
+                        if (ReceiveNewData(fds[i].fd)) {
+                            // Client disconnected and removed from fds
+                            // Current 'i' now points to the next element (or invalid)
+                            // Decrement i so loop increment moves to correct next element
+                            i--;
+                        }
+                    }
                 }
             }
         }
@@ -144,7 +175,7 @@ std::string Server::getClientHostname(int clientFd){
     return inet_ntoa(addr.sin_addr);
 }
 
-void Server::ReceiveNewData(int fd){
+bool Server::ReceiveNewData(int fd){
     char buff[1024];
     memset(buff, 0, sizeof(buff));
 
@@ -155,6 +186,7 @@ void Server::ReceiveNewData(int fd){
         std::cout << RED << "Client <" << fd << "> Disconnected" << RESET << std::endl;
         ClearClients(fd);
         close(fd);
+        return true;
     }
     else
     {
@@ -175,12 +207,32 @@ void Server::ReceiveNewData(int fd){
             size_t pos = 0;
             while ((pos = tmp.find("\n")) != std::string::npos) {
                 std::string line = tmp.substr(0, pos);
+                if (line.length() > 0 && line[line.length() - 1] == '\r')
+                    line = line.substr(0, line.length() - 1);
+                std::cout << "Client <" << cli->GetFd() << ">: " << line << std::endl;
                 ParseCommand(cli, line);
                 tmp.erase(0, pos + 1);
             }
             cli->setBuffer(tmp);
+            
+            // Check if client still exists (might have QUIT)
+            // If QUIT called ClearClients, the fd is gone from clients/fds
+            // But ParseCommand is void.
+            // Crude check: try to find it again?
+            // Or simpler: ParseCommand handles QUIT by calling ClearClients.
+            // But we need to return 'true' here if client was removed.
+            // We can check if fd is still in fds?
+            bool found = false;
+            for(size_t i = 0; i < fds.size(); i++) {
+                if(fds[i].fd == fd) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return true;
         }
     }
+    return false;
 }
 
 Channel* Server::GetChannel(std::string name){
