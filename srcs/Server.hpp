@@ -38,6 +38,8 @@ class Server
         void Cap(Client *cli, std::string cmd);
         void Ping(Client *cli, std::string cmd);
         void ParseCommand(Client *cli, std::string cmd);
+        void Kick(Client *cli, std::string cmd);
+        void Invite(Client *cli, std::string cmd);
         
         bool CheckPassword(std::string pass);
 

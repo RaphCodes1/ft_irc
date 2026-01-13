@@ -31,6 +31,10 @@ void Server::ParseCommand(Client *cli, std::string cmd){
         Cap(cli, cmd);
     else if(args[0] == "PING" || args[0] == "ping")
         Ping(cli, cmd);
+    else if(args[0] == "KICK" || args[0] == "kick")
+        Kick(cli, cmd);
+    else if(args[0] == "INVITE" || args[0] == "invite")
+        Invite(cli, cmd);
     else if(args[0] == "QUIT" || args[0] == "quit")
     {
         // Handle QUIT
@@ -379,4 +383,173 @@ void Server::Welcome(Client *cli) {
                        ":ft_irc.42.fr NOTICE " + cli->GetNickname() + " :MODE #channel +/-itklno - Set channel modes (ops only)\r\n"
                        ":ft_irc.42.fr NOTICE " + cli->GetNickname() + " :QUIT - Disconnect from server\r\n";
     send(cli->GetFd(), help.c_str(), help.length(), 0);
+}
+
+void Server::Kick(Client *cli, std::string cmd) {
+    std::vector<std::string> args;
+    std::istringstream iss(cmd);
+    std::string token;
+    while(iss >> token) {
+        args.push_back(token);
+    }
+
+    if (args.size() < 3) {
+        // ERR_NEEDMOREPARAMS
+        std::string err = ":ircserv 461 " + cli->GetNickname() + " KICK :Not enough parameters\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        return;
+    }
+
+    std::string channelName = args[1];
+    std::string targetNick = args[2];
+    std::string reason = "Kicked by operator";
+    
+    // Check if reason is provided
+    // Reconstruct reason from original cmd string to preserve spaces logic similar to privmsg
+    // but here we have KICK #chan user :reason
+    size_t reasonPos = cmd.find(targetNick) + targetNick.length();
+    if (reasonPos < cmd.length()) {
+         std::string r = cmd.substr(reasonPos);
+         size_t firstChar = r.find_first_not_of(" ");
+         if (firstChar != std::string::npos) {
+             r = r.substr(firstChar);
+             if (!r.empty() && r[0] == ':')
+                r = r.substr(1);
+             if (!r.empty())
+                reason = r;
+         }
+    }
+
+    Channel *channel = GetChannel(channelName);
+    if (!channel) {
+        // ERR_NOSUCHCHANNEL
+        std::string err = ":ircserv 403 " + cli->GetNickname() + " " + channelName + " :No such channel\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        return;
+    }
+
+    if (!channel->IsClientInChannel(cli)) {
+        // ERR_NOTONCHANNEL
+        std::string err = ":ircserv 442 " + cli->GetNickname() + " " + channelName + " :You're not on that channel\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        return;
+    }
+
+    if (!channel->IsAdmin(cli)) {
+        // ERR_CHANOPRIVSNEEDED
+        std::string err = ":ircserv 482 " + cli->GetNickname() + " " + channelName + " :You're not channel operator\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        return;
+    }
+
+    Client *target = NULL;
+    std::vector<Client*> chanClients = channel->GetClients();
+    for(size_t i=0; i<chanClients.size(); i++) {
+        if(chanClients[i]->GetNickname() == targetNick) {
+            target = chanClients[i];
+            break;
+        }
+    }
+
+    if (!target) {
+        // ERR_USERNOTINCHANNEL
+        std::string err = ":ircserv 441 " + cli->GetNickname() + " " + targetNick + " " + channelName + " :They aren't on that channel\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        return;
+    }
+
+    // Broadcast KICK
+    // :admin!user@host KICK #channel target :reason
+    std::string kickMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->GetRealname() + " KICK " + channelName + " " + targetNick + " :" + reason + "\r\n";
+    channel->Broadcast(kickMsg); // Broadcast to everyone including target
+
+    channel->RemoveClient(target);
+    
+    // Check if channel empty
+    if (channel->GetClients().empty()) {
+        for (size_t i = 0; i < channels.size(); i++) {
+            if (channels[i] == channel) {
+                channels.erase(channels.begin() + i);
+                delete channel;
+                break;
+            }
+        }
+    }
+}
+
+void Server::Invite(Client *cli, std::string cmd) {
+    std::vector<std::string> args;
+    std::istringstream iss(cmd);
+    std::string token;
+    while(iss >> token) {
+        args.push_back(token);
+    }
+
+    if (args.size() < 3) {
+        // ERR_NEEDMOREPARAMS
+        std::string err = ":ircserv 461 " + cli->GetNickname() + " INVITE :Not enough parameters\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        return;
+    }
+
+    std::string targetNick = args[1];
+    std::string channelName = args[2];
+
+    Channel *channel = GetChannel(channelName);
+    if (!channel) {
+        // ERR_NOSUCHCHANNEL
+        // Wait, standard says you can invite to non-existent channel? 
+        // But typically one invites to a channel they are on.
+        // RFC 1459: "a user ... must be a channel operator of the channel" => channel must exist and user must be on it.
+        std::string err = ":ircserv 403 " + cli->GetNickname() + " " + channelName + " :No such channel\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        return;
+    }
+
+    if (!channel->IsClientInChannel(cli)) {
+        // ERR_NOTONCHANNEL
+         std::string err = ":ircserv 442 " + cli->GetNickname() + " " + channelName + " :You're not on that channel\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        return;
+    }
+    
+    // Check operator privileges (Requirement: Ops only)
+    if (!channel->IsAdmin(cli)) {
+        // ERR_CHANOPRIVSNEEDED
+        std::string err = ":ircserv 482 " + cli->GetNickname() + " " + channelName + " :You're not channel operator\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        return;
+    }
+
+    // Check if target exists
+    Client *target = NULL;
+    for(size_t i=0; i<clients.size(); i++) {
+        if(clients[i]->GetNickname() == targetNick) {
+            target = clients[i];
+            break;
+        }
+    }
+    
+    if (!target) {
+        // ERR_NOSUCHNICK
+        std::string err = ":ircserv 401 " + cli->GetNickname() + " " + targetNick + " :No such nick/channel\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        return;
+    }
+
+    if (channel->IsClientInChannel(target)) {
+        // ERR_USERONCHANNEL
+        std::string err = ":ircserv 443 " + cli->GetNickname() + " " + targetNick + " " + channelName + " :is already on channel\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        return;
+    }
+
+    // Send RPL_INVITING to issuer
+    std::string inviting = ":ircserv 341 " + cli->GetNickname() + " " + targetNick + " " + channelName + "\r\n";
+    send(cli->GetFd(), inviting.c_str(), inviting.length(), 0);
+
+    // Send INVITE msg to target
+    // :sender!user@host INVITE target :#channel
+    std::string inviteMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->GetRealname() + " INVITE " + targetNick + " :" + channelName + "\r\n";
+    send(target->GetFd(), inviteMsg.c_str(), inviteMsg.length(), 0);
 }
