@@ -1,6 +1,6 @@
 #include "Channel.hpp"
 
-Channel::Channel(std::string name) : Name(name) {}
+Channel::Channel(std::string name) : Name(name), Limit(0), ModeI(false), ModeT(true), ModeK(false), ModeL(false) {}
 
 Channel::~Channel() {}
 
@@ -51,6 +51,27 @@ void Channel::RemoveAdmin(Client *cli) {
 bool Channel::IsAdmin(Client *cli) {
     for (size_t i = 0; i < Admins.size(); i++) {
         if (Admins[i] == cli)
+            return true;
+    }
+    return false;
+}
+
+std::string Channel::GetModeString() {
+    std::string mode = "+";
+    if(ModeI) mode += "i";
+    if(ModeT) mode += "t";
+    if(ModeK) mode += "k";
+    if(ModeL) mode += "l";
+    return mode;
+}
+
+void Channel::AddInvited(std::string nick) {
+    InvitedNicks.push_back(nick);
+}
+
+bool Channel::IsInvited(std::string nick) {
+    for(size_t i=0; i<InvitedNicks.size(); i++) {
+        if(InvitedNicks[i] == nick)
             return true;
     }
     return false;

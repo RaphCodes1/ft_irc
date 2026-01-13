@@ -209,27 +209,23 @@ bool Server::ReceiveNewData(int fd){
                 std::string line = tmp.substr(0, pos);
                 if (line.length() > 0 && line[line.length() - 1] == '\r')
                     line = line.substr(0, line.length() - 1);
+                
                 std::cout << "Client <" << cli->GetFd() << ">: " << line << std::endl;
                 ParseCommand(cli, line);
+                
+                // Check if client was disconnected (QUIT)
+                bool stillConnected = false;
+                for(size_t i = 0; i < fds.size(); i++) {
+                    if(fds[i].fd == fd) {
+                        stillConnected = true;
+                        break;
+                    }
+                }
+                if (!stillConnected) return true;
+
                 tmp.erase(0, pos + 1);
             }
             cli->setBuffer(tmp);
-            
-            // Check if client still exists (might have QUIT)
-            // If QUIT called ClearClients, the fd is gone from clients/fds
-            // But ParseCommand is void.
-            // Crude check: try to find it again?
-            // Or simpler: ParseCommand handles QUIT by calling ClearClients.
-            // But we need to return 'true' here if client was removed.
-            // We can check if fd is still in fds?
-            bool found = false;
-            for(size_t i = 0; i < fds.size(); i++) {
-                if(fds[i].fd == fd) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) return true;
         }
     }
     return false;

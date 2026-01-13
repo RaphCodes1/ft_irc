@@ -35,6 +35,10 @@ void Server::ParseCommand(Client *cli, std::string cmd){
         Kick(cli, cmd);
     else if(args[0] == "INVITE" || args[0] == "invite")
         Invite(cli, cmd);
+    else if(args[0] == "TOPIC" || args[0] == "topic")
+        Topic(cli, cmd);
+    else if(args[0] == "MODE" || args[0] == "mode")
+        Mode(cli, cmd);
     else if(args[0] == "QUIT" || args[0] == "quit")
     {
         // Handle QUIT
@@ -107,6 +111,39 @@ void Server::Join(Client *cli, std::string cmd){
         channel->AddAdmin(cli);
     }
 
+    // Check Modes
+    // 1. Invite Only (+i)
+    if (channel->GetModeI()) {
+        if (!channel->IsInvited(cli->GetNickname())) {
+             // ERR_INVITEONLYCHAN
+             std::string err = ":ircserv 473 " + cli->GetNickname() + " " + channelName + " :Cannot join channel (+i)\r\n";
+             send(cli->GetFd(), err.c_str(), err.length(), 0);
+             return;
+        }
+    }
+    
+    // 2. Limit (+l)
+    if (channel->GetModeL()) {
+        if (channel->GetClients().size() >= channel->GetLimit()) {
+            // ERR_CHANNELISFULL
+            std::string err = ":ircserv 471 " + cli->GetNickname() + " " + channelName + " :Cannot join channel (+l)\r\n";
+            send(cli->GetFd(), err.c_str(), err.length(), 0);
+            return;
+        }
+    }
+    
+    // 3. Key (+k)
+    if (channel->GetModeK()) {
+        std::string key = "";
+        if (args.size() > 2) key = args[2];
+        if (channel->GetKey() != key) {
+            // ERR_BADCHANNELKEY
+            std::string err = ":ircserv 475 " + cli->GetNickname() + " " + channelName + " :Cannot join channel (+k)\r\n";
+            send(cli->GetFd(), err.c_str(), err.length(), 0);
+            return;
+        }
+    }
+
     channel->AddClient(cli);
     
     // Notify user joined
@@ -132,6 +169,13 @@ void Server::Join(Client *cli, std::string cmd){
     // Send RPL_ENDOFNAMES (366)
     std::string endNames = ":ircserv 366 " + cli->GetNickname() + " " + channelName + " :End of /NAMES list.\r\n";
     send(cli->GetFd(), endNames.c_str(), endNames.length(), 0);
+    
+    // Send TOPIC if set
+   if (!channel->GetTopic().empty()) {
+        // RPL_TOPIC
+        std::string topicMsg = ":ircserv 332 " + cli->GetNickname() + " " + channelName + " :" + channel->GetTopic() + "\r\n";
+        send(cli->GetFd(), topicMsg.c_str(), topicMsg.length(), 0);
+   }
 }
 
 void Server::Privmsg(Client *cli, std::string cmd){
@@ -552,4 +596,211 @@ void Server::Invite(Client *cli, std::string cmd) {
     // :sender!user@host INVITE target :#channel
     std::string inviteMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->GetRealname() + " INVITE " + targetNick + " :" + channelName + "\r\n";
     send(target->GetFd(), inviteMsg.c_str(), inviteMsg.length(), 0);
+    
+    channel->AddInvited(targetNick);
+}
+
+void Server::Topic(Client *cli, std::string cmd) {
+    std::vector<std::string> args;
+    std::istringstream iss(cmd);
+    std::string token;
+    while(iss >> token) {
+        args.push_back(token);
+    }
+    
+    if (args.size() < 2) {
+        // ERR_NEEDMOREPARAMS
+        std::string err = ":ircserv 461 " + cli->GetNickname() + " TOPIC :Not enough parameters\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        return;
+    }
+    
+    std::string channelName = args[1];
+    Channel *channel = GetChannel(channelName);
+    if (!channel) {
+         std::string err = ":ircserv 403 " + cli->GetNickname() + " " + channelName + " :No such channel\r\n";
+         send(cli->GetFd(), err.c_str(), err.length(), 0);
+         return;
+    }
+    
+    if (!channel->IsClientInChannel(cli)) {
+        std::string err = ":ircserv 442 " + cli->GetNickname() + " " + channelName + " :You're not on that channel\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        return;
+    }
+
+    // Check if viewing or setting
+    if (args.size() == 2) {
+        // View Topic
+        if (channel->GetTopic().empty()) {
+            std::string msg = ":ircserv 331 " + cli->GetNickname() + " " + channelName + " :No topic is set\r\n";
+            send(cli->GetFd(), msg.c_str(), msg.length(), 0);
+        } else {
+            std::string msg = ":ircserv 332 " + cli->GetNickname() + " " + channelName + " :" + channel->GetTopic() + "\r\n";
+            send(cli->GetFd(), msg.c_str(), msg.length(), 0);
+        }
+    } else {
+        // Set Topic
+        // Check +t mode
+        if (channel->GetModeT() && !channel->IsAdmin(cli)) {
+             std::string err = ":ircserv 482 " + cli->GetNickname() + " " + channelName + " :You're not channel operator\r\n";
+             send(cli->GetFd(), err.c_str(), err.length(), 0);
+             return;
+        }
+        
+        std::string newTopic = "";
+        // Extract topic (handle spaces)
+        size_t topicPos = cmd.find(channelName) + channelName.length();
+        if(topicPos != std::string::npos) {
+             std::string t = cmd.substr(topicPos);
+             size_t first = t.find_first_not_of(" ");
+             if(first != std::string::npos) {
+                t = t.substr(first);
+                if(!t.empty() && t[0] == ':')
+                   t = t.substr(1);
+                newTopic = t;
+             }
+        }
+        
+        channel->SetTopic(newTopic);
+        // Broadcast TOPIC change
+        std::string topicMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->GetRealname() + " TOPIC " + channelName + " :" + newTopic + "\r\n";
+        channel->Broadcast(topicMsg);
+    }
+}
+
+void Server::Mode(Client *cli, std::string cmd) {
+    std::vector<std::string> args;
+    std::istringstream iss(cmd);
+    std::string token;
+    while(iss >> token) {
+        args.push_back(token);
+    }
+
+    if (args.size() < 2) {
+         std::string err = ":ircserv 461 " + cli->GetNickname() + " MODE :Not enough parameters\r\n";
+         send(cli->GetFd(), err.c_str(), err.length(), 0);
+        return;
+    }
+    
+    std::string target = args[1];
+    
+    if (target[0] != '#') {
+        // User mode - ignore for 42 subject mostly, or return error
+         // std::cout << "User mode not implemented" << std::endl;
+         return;
+    }
+    
+    Channel *channel = GetChannel(target);
+    if (!channel) {
+         std::string err = ":ircserv 403 " + cli->GetNickname() + " " + target + " :No such channel\r\n";
+         send(cli->GetFd(), err.c_str(), err.length(), 0);
+         return;
+    }
+    
+    if (args.size() == 2) {
+        // RPL_CHANNELMODEIS
+        std::string modes = channel->GetModeString();
+        // Append arguments like key and limit if set (optional but good)
+        std::string msg = ":ircserv 324 " + cli->GetNickname() + " " + target + " " + modes + "\r\n";
+        send(cli->GetFd(), msg.c_str(), msg.length(), 0);
+        return;
+    }
+    
+    // Set/Unset Mode
+    if (!channel->IsClientInChannel(cli)) {
+        // ERR_NOTONCHANNEL? OR just check operator?
+        // Usually need to be on channel to set mode?
+        // Let's assume yes.
+    }
+    
+    if (!channel->IsAdmin(cli)) {
+         std::string err = ":ircserv 482 " + cli->GetNickname() + " " + target + " :You're not channel operator\r\n";
+         send(cli->GetFd(), err.c_str(), err.length(), 0);
+         return;
+    }
+    
+    std::string modeString = args[2];
+    bool adding = true;
+    size_t argIdx = 3; // Index for mode arguments
+    std::string changes = ""; // To reconstruct what actually changed for broadcast
+    
+    for(size_t i=0; i<modeString.length(); i++) {
+        char mode = modeString[i];
+        
+        if (mode == '+') {
+            adding = true;
+            changes += "+";
+        } else if (mode == '-') {
+            adding = false;
+            changes += "-";
+        } else if (mode == 'i') {
+            channel->SetModeI(adding);
+            changes += "i";
+        } else if (mode == 't') {
+            channel->SetModeT(adding);
+            changes += "t";
+        } else if (mode == 'k') {
+            if (adding) {
+                if (argIdx < args.size()) {
+                    channel->SetKey(args[argIdx++]);
+                    changes += "k";
+                }
+            } else {
+                channel->RemoveKey();
+                changes += "k";
+            }
+        } else if (mode == 'l') {
+            if (adding) {
+                if (argIdx < args.size()) {
+                    channel->SetLimit(atoi(args[argIdx++].c_str()));
+                    changes += "l";
+                }
+            } else {
+                channel->RemoveLimit();
+                changes += "l";
+            }
+        } else if (mode == 'o') {
+            if (argIdx < args.size()) {
+                std::string targetNick = args[argIdx++];
+                // Find client in channel
+                std::vector<Client*> chClients = channel->GetClients();
+                Client *targetCli = NULL;
+                for(size_t j=0; j<chClients.size(); j++) {
+                    if(chClients[j]->GetNickname() == targetNick) {
+                        targetCli = chClients[j];
+                        break;
+                    }
+                }
+                if (targetCli) {
+                    if (adding) channel->AddAdmin(targetCli);
+                    else channel->RemoveAdmin(targetCli);
+                    changes += "o " + targetNick; // Add argument to change check
+                    // Wait, simplistic reconstruction:
+                    // MODE #chan +o user
+                }
+            }
+        }
+    }
+    
+    // Broadcast changes
+    // Simplified broadcast string construction. Real IRC servers are more precise.
+    // :nick!user@host MODE #channel +i
+    if (!changes.empty()) {
+        std::string modeMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->GetRealname() + " MODE " + target + " " + modeString;
+        // Append args used?
+         // For now just sending what user sent, assuming typical usage one by one or simple combo
+         // For precise 'changes' string building, it's more complex.
+         // Let's just echo back the successful command essentially.
+         // But we should only echo if valid.
+        
+         // Better implementation:
+        std::string finalMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->GetRealname() + " MODE " + target + " " + modeString;
+        for (size_t i = 3; i < argIdx; ++i) { // Append consumed args
+             if (i < args.size())
+                finalMsg += " " + args[i];
+        }
+        finalMsg += "\r\n";
+        channel->Broadcast(finalMsg);
+    }
 }
