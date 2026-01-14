@@ -153,7 +153,7 @@ void Server::Join(Client *cli, std::string cmd){
     
     // Notify user joined
     // :user!user@host JOIN :#channel
-    std::string joinMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->GetRealname() + " JOIN :" + channelName + "\r\n";
+    std::string joinMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->getIpAdd() + " JOIN :" + channelName + "\r\n";
     channel->Broadcast(joinMsg);
     
     // Send RPL_NAMREPLY (353)
@@ -225,7 +225,7 @@ void Server::Privmsg(Client *cli, std::string cmd){
         Channel *channel = GetChannel(target);
         if (channel) {
             // :sender!user@host PRIVMSG #channel :message
-            std::string fullMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->GetRealname() + " PRIVMSG " + target + " :" + message + "\r\n";
+            std::string fullMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->getIpAdd() + " PRIVMSG " + target + " :" + message + "\r\n";
             channel->Broadcast(fullMsg, cli->GetFd()); // Don't send back to sender
         } else {
              // ERR_NOSUCHCHANNEL
@@ -241,7 +241,7 @@ void Server::Privmsg(Client *cli, std::string cmd){
             }
         }
         if (dest) {
-             std::string fullMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->GetRealname() + " PRIVMSG " + target + " :" + message + "\r\n";
+             std::string fullMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->getIpAdd() + " PRIVMSG " + target + " :" + message + "\r\n";
              send(dest->GetFd(), fullMsg.c_str(), fullMsg.length(), 0);
         } else {
             // ERR_NOSUCHNICK
@@ -311,7 +311,7 @@ void Server::Nick(Client *cli, std::string cmd){
     if (cli->GetRegistered()) {
         // Broadcast NICK change to all channels user is in
         // :oldnick!user@host NICK :newnick
-        std::string nickMsg = ":" + oldNick + "!" + cli->GetUsername() + "@" + cli->GetRealname() + " NICK :" + newNick + "\r\n";
+        std::string nickMsg = ":" + oldNick + "!" + cli->GetUsername() + "@" + cli->getIpAdd() + " NICK :" + newNick + "\r\n";
         
         // Find channels and broadcast
         // Note: In an optimized server we would find unique users. Here we iterate channels.
@@ -413,7 +413,7 @@ void Server::Part(Client *cli, std::string cmd) {
     
     // Broadcast PART message to channel (including user)
     // :user!user@host PART #channel
-    std::string partMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->GetRealname() + " PART " + channelName + "\r\n";
+    std::string partMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->getIpAdd() + " PART " + channelName + "\r\n";
     channel->Broadcast(partMsg);
     
     channel->RemoveClient(cli);
@@ -526,7 +526,7 @@ void Server::Kick(Client *cli, std::string cmd) {
 
     // Broadcast KICK
     // :admin!user@host KICK #channel target :reason
-    std::string kickMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->GetRealname() + " KICK " + channelName + " " + targetNick + " :" + reason + "\r\n";
+    std::string kickMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->getIpAdd() + " KICK " + channelName + " " + targetNick + " :" + reason + "\r\n";
     channel->Broadcast(kickMsg); // Broadcast to everyone including target
 
     channel->RemoveClient(target);
@@ -616,7 +616,7 @@ void Server::Invite(Client *cli, std::string cmd) {
 
     // Send INVITE msg to target
     // :sender!user@host INVITE target :#channel
-    std::string inviteMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->GetRealname() + " INVITE " + targetNick + " :" + channelName + "\r\n";
+    std::string inviteMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->getIpAdd() + " INVITE " + targetNick + " :" + channelName + "\r\n";
     send(target->GetFd(), inviteMsg.c_str(), inviteMsg.length(), 0);
     
     channel->AddInvited(targetNick);
@@ -686,7 +686,7 @@ void Server::Topic(Client *cli, std::string cmd) {
         
         channel->SetTopic(newTopic);
         // Broadcast TOPIC change
-        std::string topicMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->GetRealname() + " TOPIC " + channelName + " :" + newTopic + "\r\n";
+        std::string topicMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->getIpAdd() + " TOPIC " + channelName + " :" + newTopic + "\r\n";
         channel->Broadcast(topicMsg);
     }
 }
@@ -809,7 +809,7 @@ void Server::Mode(Client *cli, std::string cmd) {
     // Simplified broadcast string construction. Real IRC servers are more precise.
     // :nick!user@host MODE #channel +i
     if (!changes.empty()) {
-        std::string modeMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->GetRealname() + " MODE " + target + " " + modeString;
+        std::string modeMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->getIpAdd() + " MODE " + target + " " + modeString;
         // Append args used?
          // For now just sending what user sent, assuming typical usage one by one or simple combo
          // For precise 'changes' string building, it's more complex.
@@ -817,7 +817,7 @@ void Server::Mode(Client *cli, std::string cmd) {
          // But we should only echo if valid.
         
          // Better implementation:
-        std::string finalMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->GetRealname() + " MODE " + target + " " + modeString;
+        std::string finalMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->getIpAdd() + " MODE " + target + " " + modeString;
         for (size_t i = 3; i < argIdx; ++i) { // Append consumed args
              if (i < args.size())
                 finalMsg += " " + args[i];

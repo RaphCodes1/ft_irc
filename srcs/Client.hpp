@@ -36,6 +36,8 @@ class Client
         void setBuffer(std::string buf) { buffer = buf; }
         std::string getBuffer()const { return buffer; }
         void clearBuffer() { buffer.clear(); }
+
+        std::string getIpAdd()const {return this->IPadd;};
 };
 
 #endif
