@@ -77,6 +77,9 @@ void Server::Ping(Client *cli, std::string cmd){
     }
     
     if (args.size() < 2) {
+        // ERR_NEEDMOREPARAMS (409)
+        std::string err = ":ircserv 409 " + (cli->GetNickname().empty() ? "*" : cli->GetNickname()) + " PING :Not enough parameters\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
         return;
     }
     
@@ -93,7 +96,9 @@ void Server::Join(Client *cli, std::string cmd){
     }
 
     if (args.size() < 2) {
-        // ERR_NEEDMOREPARAMS
+        // ERR_NEEDMOREPARAMS (461)
+        std::string err = ":ircserv 461 " + (cli->GetNickname().empty() ? "*" : cli->GetNickname()) + " JOIN :Not enough parameters\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
         return;
     }
 
@@ -186,8 +191,17 @@ void Server::Privmsg(Client *cli, std::string cmd){
         args.push_back(token);
     }
 
+    if (args.size() < 2) {
+        // ERR_NEEDMOREPARAMS (461)
+        std::string err = ":ircserv 461 " + (cli->GetNickname().empty() ? "*" : cli->GetNickname()) + " PRIVMSG :Not enough parameters\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        return;
+    }
+    
     if (args.size() < 3) {
-        // ERR_NEEDMOREPARAMS or ERR_NOTEXTTOSEND
+        // ERR_NOTEXTTOSEND (412)
+        std::string err = ":ircserv 412 " + (cli->GetNickname().empty() ? "*" : cli->GetNickname()) + " :No text to send\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
         return;
     }
 
@@ -267,13 +281,16 @@ void Server::Nick(Client *cli, std::string cmd){
     }
 
     if (args.size() < 2) {
-        // ERR_NONICKNAMEGIVEN
+        // ERR_NONICKNAMEGIVEN (431)
+        std::string err = ":ircserv 431 * :No nickname given\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
         return;
     }
 
     if (!cli->GetLoggedIn()) {
-        // Should wait for PASS? Or if PASS not required?
-        // For now assume PASS required
+        // ERR_NOTREGISTERED (451) - must send PASS first
+        std::string err = ":ircserv 451 " + (cli->GetNickname().empty() ? "*" : cli->GetNickname()) + " NICK :You have not registered\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
         return;
     }
 
@@ -327,11 +344,16 @@ void Server::User(Client *cli, std::string cmd){
     }
 
     if (args.size() < 5) {
-        // ERR_NEEDMOREPARAMS
+        // ERR_NEEDMOREPARAMS (461)
+        std::string err = ":ircserv 461 " + (cli->GetNickname().empty() ? "*" : cli->GetNickname()) + " USER :Not enough parameters\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
         return;
     }
 
     if (!cli->GetLoggedIn()) {
+        // ERR_NOTREGISTERED (451)
+        std::string err = ":ircserv 451 " + (cli->GetNickname().empty() ? "*" : cli->GetNickname()) + " USER :You have not registered\r\n";
+        send(cli->GetFd(), err.c_str(), err.length(), 0);
         return;
     }
     
