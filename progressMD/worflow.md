@@ -185,7 +185,6 @@ It expects a pointer to a generic struct sockaddr, because it must also support 
 sockaddr_in is layout‑compatible with sockaddr at the beginning, so you can safely treat the address as a struct sockaddr * when calling accept.
 
 **MAKING THE CLIENT SOCKET NON-BLOCKING**
-
 if(fcntl(incofd, F_SETFL, O_NONBLOCK) < 0)
 {
     std::cerr << "fcntl() failed" << std::endl;
@@ -193,5 +192,98 @@ if(fcntl(incofd, F_SETFL, O_NONBLOCK) < 0)
 }
 
 fcntl with F_SETFL and O_NONBLOCK marks this client socket as non‑blocking, meaning recv/send will return immediately instead of hanging the whole server if there is no data yet.
+
+**CREATING AND STORING THE CLIENT OBJECT**
+Client* cli = new Client(incofd, getClientHostname(incofd));
+clients.push_back(cli);
+
+A new Client object is created, given:
+
+incofd: the socket fd for that client.
+
+getClientHostname(incofd): a string with the client’s IP/hostname.
+
+pointer is stored in clients so the server can find it later when handling IRC commands.
+
+**ADDING THE CLIENT TO THE POLL SET**
+NewPoll.fd = incofd;
+NewPoll.events = POLLIN;
+NewPoll.revents = 0;
+fds.push_back(NewPoll);
+
+A pollfd is prepared for the new client:
+
+fd = incofd: watch this client socket.
+
+events = POLLIN: the server wants to know when this socket becomes readable (client sends data or disconnects).
+
+revents = 0: cleared before the next poll call.
+
+Pushing into fds means the main poll loop will now monitor this client like the others.
+
+**GETTING THE CLIENT HOSTNAME**
+std::string Server::getClientHostname(int clientFd){
+    struct sockaddr_in addr;
+    socklen_t len = sizeof(addr);
+    if(getpeername(clientFd, (struct sockaddr *)&addr, &len) < 0){
+        return "unknown hostname";
+    }
+    return inet_ntoa(addr.sin_addr);
+}
+On success, inet_ntoa(addr.sin_addr) converts the client’s IP address into a human‑readable string like "192.168.1.5", which is passed into the Client constructor.
+
+-----------------------------------------------
+
+
+-------------RecieveNewData()-------------
+
+this function reads data from the client socket, splits it into IRC lines, returns true if client is disconnected, otherwise false
+
+**READING FROM THE SOCKET**
+char buff[1024];
+memset(buff, 0, sizeof(buff));
+
+ssize_t bytes = recv(fd, buff, sizeof(buff) - 1, 0);
+
+buff is a temporary buffer for one chunk of data from the socket.
+
+memset clears it to zeros to avoid leftover garbage.
+
+**HANDLING DISCONNECT OR ERROR**
+if(bytes <= 0)
+{
+    std::cout << RED << "Client <" << fd << "> Disconnected" << RESET << std::endl;
+    ClearClients(fd);
+    close(fd);
+    return true;
+}
+
+> 0: number of bytes actually read this time.
+
+= 0: peer closed the connection cleanly.
+
+< 0: error (or EAGAIN/EWOULDBLOCK for non‑blocking).
+
+It logs the disconnect, calls ClearClients(fd) (likely removes the Client* from clients and the pollfd from fds), closes the socket, and returns true.
+
+Returning true tells the caller: “this client is gone; adjust your fds loop (that’s why you do i-- in the poll loop).”
+
+**APPENDING DATA TO THE CLIENT BUFFER**
+else
+{
+    buff[bytes] = '\0';
+    // Find client
+    Client *cli = NULL;
+    for(size_t i = 0; i < clients.size(); i++){
+        if(clients[i]->GetFd() == fd){
+            cli = clients[i];
+            break;
+        }
+    }
+finds the Client object associated with this fd in the clients vector.
+
+if (cli) {
+        cli->setBuffer(cli->getBuffer() + buff);
+        std::string tmp = cli->getBuffer();
 
 
