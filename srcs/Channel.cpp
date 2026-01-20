@@ -1,4 +1,5 @@
 #include "Channel.hpp"
+#include "Server.hpp"
 
 Channel::Channel(std::string name) : Name(name), Limit(0), ModeI(false), ModeT(true), ModeK(false), ModeL(false) {}
 
@@ -27,10 +28,12 @@ bool Channel::IsClientInChannel(Client *cli) {
     return false;
 }
 
-void Channel::Broadcast(std::string msg, int excludeFd) {
+void Channel::Broadcast(Server *server, std::string msg, int excludeFd) {
+    if (!server)
+        return;
     for (size_t i = 0; i < Clients.size(); ++i) {
         if (Clients[i]->GetFd() != excludeFd) {
-            send(Clients[i]->GetFd(), msg.c_str(), msg.length(), 0);
+            server->QueueMessage(Clients[i], msg);
         }
     }
 }

@@ -15,6 +15,7 @@
 #include <cstring>
 #include <sstream>
 #include <cctype>
+#include <cerrno>
 
 #include "Server.hpp"
 #include "Client.hpp"

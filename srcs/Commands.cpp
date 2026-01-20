@@ -64,7 +64,7 @@ void Server::Cap(Client *cli, std::string cmd){
     // CAP LS
     if (args.size() > 1 && args[1] == "LS") {
         std::string capLs = "CAP * LS :\r\n";
-        send(cli->GetFd(), capLs.c_str(), capLs.length(), 0);
+        QueueMessage(cli, capLs);
     }
 }
 
@@ -79,12 +79,12 @@ void Server::Ping(Client *cli, std::string cmd){
     if (args.size() < 2) {
         // ERR_NEEDMOREPARAMS (409)
         std::string err = ":ircserv 409 " + (cli->GetNickname().empty() ? "*" : cli->GetNickname()) + " PING :Not enough parameters\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
     
     std::string pong = "PONG " + args[1] + "\r\n";
-    send(cli->GetFd(), pong.c_str(), pong.length(), 0);
+    QueueMessage(cli, pong);
 }
 
 void Server::Join(Client *cli, std::string cmd){
@@ -98,7 +98,7 @@ void Server::Join(Client *cli, std::string cmd){
     if (args.size() < 2) {
         // ERR_NEEDMOREPARAMS (461)
         std::string err = ":ircserv 461 " + (cli->GetNickname().empty() ? "*" : cli->GetNickname()) + " JOIN :Not enough parameters\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
 
@@ -122,7 +122,7 @@ void Server::Join(Client *cli, std::string cmd){
         if (!channel->IsInvited(cli->GetNickname())) {
              // ERR_INVITEONLYCHAN
              std::string err = ":ircserv 473 " + cli->GetNickname() + " " + channelName + " :Cannot join channel (+i)\r\n";
-             send(cli->GetFd(), err.c_str(), err.length(), 0);
+             QueueMessage(cli, err);
              return;
         }
     }
@@ -132,7 +132,7 @@ void Server::Join(Client *cli, std::string cmd){
         if (channel->GetClients().size() >= channel->GetLimit()) {
             // ERR_CHANNELISFULL
             std::string err = ":ircserv 471 " + cli->GetNickname() + " " + channelName + " :Cannot join channel (+l)\r\n";
-            send(cli->GetFd(), err.c_str(), err.length(), 0);
+            QueueMessage(cli, err);
             return;
         }
     }
@@ -144,7 +144,7 @@ void Server::Join(Client *cli, std::string cmd){
         if (channel->GetKey() != key) {
             // ERR_BADCHANNELKEY
             std::string err = ":ircserv 475 " + cli->GetNickname() + " " + channelName + " :Cannot join channel (+k)\r\n";
-            send(cli->GetFd(), err.c_str(), err.length(), 0);
+            QueueMessage(cli, err);
             return;
         }
     }
@@ -154,7 +154,7 @@ void Server::Join(Client *cli, std::string cmd){
     // Notify user joined
     // :user!user@host JOIN :#channel
     std::string joinMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->getIpAdd() + " JOIN :" + channelName + "\r\n";
-    channel->Broadcast(joinMsg);
+    channel->Broadcast(this, joinMsg);
     
     // Send RPL_NAMREPLY (353)
     // :ircserv 353 <user> = <channel> :<nick1> <nick2>
@@ -169,17 +169,17 @@ void Server::Join(Client *cli, std::string cmd){
     }
     
     std::string namReply = ":ircserv 353 " + cli->GetNickname() + " = " + channelName + " :" + namesList + "\r\n";
-    send(cli->GetFd(), namReply.c_str(), namReply.length(), 0);
+    QueueMessage(cli, namReply);
 
     // Send RPL_ENDOFNAMES (366)
     std::string endNames = ":ircserv 366 " + cli->GetNickname() + " " + channelName + " :End of /NAMES list.\r\n";
-    send(cli->GetFd(), endNames.c_str(), endNames.length(), 0);
+    QueueMessage(cli, endNames);
     
     // Send TOPIC if set
    if (!channel->GetTopic().empty()) {
         // RPL_TOPIC
         std::string topicMsg = ":ircserv 332 " + cli->GetNickname() + " " + channelName + " :" + channel->GetTopic() + "\r\n";
-        send(cli->GetFd(), topicMsg.c_str(), topicMsg.length(), 0);
+       QueueMessage(cli, topicMsg);
    }
 }
 
@@ -194,14 +194,14 @@ void Server::Privmsg(Client *cli, std::string cmd){
     if (args.size() < 2) {
         // ERR_NEEDMOREPARAMS (461)
         std::string err = ":ircserv 461 " + (cli->GetNickname().empty() ? "*" : cli->GetNickname()) + " PRIVMSG :Not enough parameters\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
     
     if (args.size() < 3) {
         // ERR_NOTEXTTOSEND (412)
         std::string err = ":ircserv 412 " + (cli->GetNickname().empty() ? "*" : cli->GetNickname()) + " :No text to send\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
 
@@ -226,7 +226,7 @@ void Server::Privmsg(Client *cli, std::string cmd){
         if (channel) {
             // :sender!user@host PRIVMSG #channel :message
             std::string fullMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->getIpAdd() + " PRIVMSG " + target + " :" + message + "\r\n";
-            channel->Broadcast(fullMsg, cli->GetFd()); // Don't send back to sender
+            channel->Broadcast(this, fullMsg, cli->GetFd()); // Don't send back to sender
         } else {
              // ERR_NOSUCHCHANNEL
         }
@@ -242,7 +242,7 @@ void Server::Privmsg(Client *cli, std::string cmd){
         }
         if (dest) {
              std::string fullMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->getIpAdd() + " PRIVMSG " + target + " :" + message + "\r\n";
-             send(dest->GetFd(), fullMsg.c_str(), fullMsg.length(), 0);
+             QueueMessage(dest, fullMsg);
         } else {
             // ERR_NOSUCHNICK
         }
@@ -267,7 +267,7 @@ void Server::Pass(Client *cli, std::string cmd){
     } else {
         // ERR_PASSWDMISMATCH
         std::string err = ":ircserv 464 " + cli->GetNickname() + " :Password incorrect\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         cli->SetLoggedIn(false);
     }
 }
@@ -283,14 +283,14 @@ void Server::Nick(Client *cli, std::string cmd){
     if (args.size() < 2) {
         // ERR_NONICKNAMEGIVEN (431)
         std::string err = ":ircserv 431 * :No nickname given\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
 
     if (!cli->GetLoggedIn()) {
         // ERR_NOTREGISTERED (451) - must send PASS first
         std::string err = ":ircserv 451 " + (cli->GetNickname().empty() ? "*" : cli->GetNickname()) + " NICK :You have not registered\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
 
@@ -299,7 +299,7 @@ void Server::Nick(Client *cli, std::string cmd){
         if (clients[i]->GetNickname() == args[1]) {
             // ERR_NICKNAMEINUSE
             std::string err = ":ircserv 433 " + (cli->GetNickname().empty() ? "*" : cli->GetNickname()) + " " + args[1] + " :Nickname is already in use\r\n";
-            send(cli->GetFd(), err.c_str(), err.length(), 0);
+            QueueMessage(cli, err);
             return;
         }
     }
@@ -316,11 +316,11 @@ void Server::Nick(Client *cli, std::string cmd){
         // Find channels and broadcast
         // Note: In an optimized server we would find unique users. Here we iterate channels.
         // Also send to self
-        send(cli->GetFd(), nickMsg.c_str(), nickMsg.length(), 0);
+        QueueMessage(cli, nickMsg);
         
         for (size_t i = 0; i < channels.size(); i++) {
             if (channels[i]->IsClientInChannel(cli)) {
-                channels[i]->Broadcast(nickMsg, cli->GetFd()); // Don't send relative to sender again?
+                channels[i]->Broadcast(this, nickMsg, cli->GetFd()); // Don't send relative to sender again?
                 // Actually my Broadcast excludes sender. But client needs to know.
                 // Wait, I sent to self above. So excludeFd=cli->GetFd() is correct.
             }
@@ -346,20 +346,20 @@ void Server::User(Client *cli, std::string cmd){
     if (args.size() < 5) {
         // ERR_NEEDMOREPARAMS (461)
         std::string err = ":ircserv 461 " + (cli->GetNickname().empty() ? "*" : cli->GetNickname()) + " USER :Not enough parameters\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
 
     if (!cli->GetLoggedIn()) {
         // ERR_NOTREGISTERED (451)
         std::string err = ":ircserv 451 " + (cli->GetNickname().empty() ? "*" : cli->GetNickname()) + " USER :You have not registered\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
     
     if (cli->GetRegistered()) {
          std::string err = ":ircserv 462 " + cli->GetNickname() + " :You may not reregister\r\n";
-         send(cli->GetFd(), err.c_str(), err.length(), 0);
+            QueueMessage(cli, err);
          return;
     }
 
@@ -400,21 +400,21 @@ void Server::Part(Client *cli, std::string cmd) {
     if (!channel) {
         // ERR_NOSUCHCHANNEL
          std::string err = ":ircserv 403 " + cli->GetNickname() + " " + channelName + " :No such channel\r\n";
-         send(cli->GetFd(), err.c_str(), err.length(), 0);
+         QueueMessage(cli, err);
         return;
     }
     
     if (!channel->IsClientInChannel(cli)) {
         // ERR_NOTONCHANNEL
         std::string err = ":ircserv 442 " + cli->GetNickname() + " " + channelName + " :You're not on that channel\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
     
     // Broadcast PART message to channel (including user)
     // :user!user@host PART #channel
     std::string partMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->getIpAdd() + " PART " + channelName + "\r\n";
-    channel->Broadcast(partMsg);
+    channel->Broadcast(this, partMsg);
     
     channel->RemoveClient(cli);
     
@@ -435,7 +435,7 @@ void Server::Welcome(Client *cli) {
     cli->SetRegistered(true);
     // RPL_WELCOME
     std::string welcome = ":ircserv 001 " + cli->GetNickname() + " :Welcome to the ft_irc Network, " + cli->GetNickname() + "\r\n";
-    send(cli->GetFd(), welcome.c_str(), welcome.length(), 0);
+    QueueMessage(cli, welcome);
 
     // Send Help/Available Commands
     std::string help = ":ft_irc.42.fr NOTICE " + cli->GetNickname() + " :Available Commands:\r\n"
@@ -448,7 +448,7 @@ void Server::Welcome(Client *cli) {
                        ":ft_irc.42.fr NOTICE " + cli->GetNickname() + " :INVITE nickname #channel - Invite user (ops only)\r\n"
                        ":ft_irc.42.fr NOTICE " + cli->GetNickname() + " :MODE #channel +/-itklno - Set channel modes (ops only)\r\n"
                        ":ft_irc.42.fr NOTICE " + cli->GetNickname() + " :QUIT - Disconnect from server\r\n";
-    send(cli->GetFd(), help.c_str(), help.length(), 0);
+    QueueMessage(cli, help);
 }
 
 void Server::Kick(Client *cli, std::string cmd) {
@@ -462,7 +462,7 @@ void Server::Kick(Client *cli, std::string cmd) {
     if (args.size() < 3) {
         // ERR_NEEDMOREPARAMS
         std::string err = ":ircserv 461 " + cli->GetNickname() + " KICK :Not enough parameters\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
 
@@ -490,21 +490,21 @@ void Server::Kick(Client *cli, std::string cmd) {
     if (!channel) {
         // ERR_NOSUCHCHANNEL
         std::string err = ":ircserv 403 " + cli->GetNickname() + " " + channelName + " :No such channel\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
 
     if (!channel->IsClientInChannel(cli)) {
         // ERR_NOTONCHANNEL
         std::string err = ":ircserv 442 " + cli->GetNickname() + " " + channelName + " :You're not on that channel\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
 
     if (!channel->IsAdmin(cli)) {
         // ERR_CHANOPRIVSNEEDED
         std::string err = ":ircserv 482 " + cli->GetNickname() + " " + channelName + " :You're not channel operator\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
 
@@ -520,14 +520,14 @@ void Server::Kick(Client *cli, std::string cmd) {
     if (!target) {
         // ERR_USERNOTINCHANNEL
         std::string err = ":ircserv 441 " + cli->GetNickname() + " " + targetNick + " " + channelName + " :They aren't on that channel\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
 
     // Broadcast KICK
     // :admin!user@host KICK #channel target :reason
     std::string kickMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->getIpAdd() + " KICK " + channelName + " " + targetNick + " :" + reason + "\r\n";
-    channel->Broadcast(kickMsg); // Broadcast to everyone including target
+    channel->Broadcast(this, kickMsg); // Broadcast to everyone including target
 
     channel->RemoveClient(target);
     
@@ -554,7 +554,7 @@ void Server::Invite(Client *cli, std::string cmd) {
     if (args.size() < 3) {
         // ERR_NEEDMOREPARAMS
         std::string err = ":ircserv 461 " + cli->GetNickname() + " INVITE :Not enough parameters\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
 
@@ -568,14 +568,14 @@ void Server::Invite(Client *cli, std::string cmd) {
         // But typically one invites to a channel they are on.
         // RFC 1459: "a user ... must be a channel operator of the channel" => channel must exist and user must be on it.
         std::string err = ":ircserv 403 " + cli->GetNickname() + " " + channelName + " :No such channel\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
 
     if (!channel->IsClientInChannel(cli)) {
         // ERR_NOTONCHANNEL
          std::string err = ":ircserv 442 " + cli->GetNickname() + " " + channelName + " :You're not on that channel\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
     
@@ -583,7 +583,7 @@ void Server::Invite(Client *cli, std::string cmd) {
     if (!channel->IsAdmin(cli)) {
         // ERR_CHANOPRIVSNEEDED
         std::string err = ":ircserv 482 " + cli->GetNickname() + " " + channelName + " :You're not channel operator\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
 
@@ -599,25 +599,25 @@ void Server::Invite(Client *cli, std::string cmd) {
     if (!target) {
         // ERR_NOSUCHNICK
         std::string err = ":ircserv 401 " + cli->GetNickname() + " " + targetNick + " :No such nick/channel\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
 
     if (channel->IsClientInChannel(target)) {
         // ERR_USERONCHANNEL
         std::string err = ":ircserv 443 " + cli->GetNickname() + " " + targetNick + " " + channelName + " :is already on channel\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
 
     // Send RPL_INVITING to issuer
     std::string inviting = ":ircserv 341 " + cli->GetNickname() + " " + targetNick + " " + channelName + "\r\n";
-    send(cli->GetFd(), inviting.c_str(), inviting.length(), 0);
+    QueueMessage(cli, inviting);
 
     // Send INVITE msg to target
     // :sender!user@host INVITE target :#channel
     std::string inviteMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->getIpAdd() + " INVITE " + targetNick + " :" + channelName + "\r\n";
-    send(target->GetFd(), inviteMsg.c_str(), inviteMsg.length(), 0);
+    QueueMessage(target, inviteMsg);
     
     channel->AddInvited(targetNick);
 }
@@ -633,7 +633,7 @@ void Server::Topic(Client *cli, std::string cmd) {
     if (args.size() < 2) {
         // ERR_NEEDMOREPARAMS
         std::string err = ":ircserv 461 " + cli->GetNickname() + " TOPIC :Not enough parameters\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
     
@@ -641,13 +641,13 @@ void Server::Topic(Client *cli, std::string cmd) {
     Channel *channel = GetChannel(channelName);
     if (!channel) {
          std::string err = ":ircserv 403 " + cli->GetNickname() + " " + channelName + " :No such channel\r\n";
-         send(cli->GetFd(), err.c_str(), err.length(), 0);
+            QueueMessage(cli, err);
          return;
     }
     
     if (!channel->IsClientInChannel(cli)) {
         std::string err = ":ircserv 442 " + cli->GetNickname() + " " + channelName + " :You're not on that channel\r\n";
-        send(cli->GetFd(), err.c_str(), err.length(), 0);
+        QueueMessage(cli, err);
         return;
     }
 
@@ -656,17 +656,17 @@ void Server::Topic(Client *cli, std::string cmd) {
         // View Topic
         if (channel->GetTopic().empty()) {
             std::string msg = ":ircserv 331 " + cli->GetNickname() + " " + channelName + " :No topic is set\r\n";
-            send(cli->GetFd(), msg.c_str(), msg.length(), 0);
+            QueueMessage(cli, msg);
         } else {
             std::string msg = ":ircserv 332 " + cli->GetNickname() + " " + channelName + " :" + channel->GetTopic() + "\r\n";
-            send(cli->GetFd(), msg.c_str(), msg.length(), 0);
+            QueueMessage(cli, msg);
         }
     } else {
         // Set Topic
         // Check +t mode
         if (channel->GetModeT() && !channel->IsAdmin(cli)) {
              std::string err = ":ircserv 482 " + cli->GetNickname() + " " + channelName + " :You're not channel operator\r\n";
-             send(cli->GetFd(), err.c_str(), err.length(), 0);
+             QueueMessage(cli, err);
              return;
         }
         
@@ -687,7 +687,7 @@ void Server::Topic(Client *cli, std::string cmd) {
         channel->SetTopic(newTopic);
         // Broadcast TOPIC change
         std::string topicMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->getIpAdd() + " TOPIC " + channelName + " :" + newTopic + "\r\n";
-        channel->Broadcast(topicMsg);
+        channel->Broadcast(this, topicMsg);
     }
 }
 
@@ -701,7 +701,7 @@ void Server::Mode(Client *cli, std::string cmd) {
 
     if (args.size() < 2) {
          std::string err = ":ircserv 461 " + cli->GetNickname() + " MODE :Not enough parameters\r\n";
-         send(cli->GetFd(), err.c_str(), err.length(), 0);
+            QueueMessage(cli, err);
         return;
     }
     
@@ -716,7 +716,7 @@ void Server::Mode(Client *cli, std::string cmd) {
     Channel *channel = GetChannel(target);
     if (!channel) {
          std::string err = ":ircserv 403 " + cli->GetNickname() + " " + target + " :No such channel\r\n";
-         send(cli->GetFd(), err.c_str(), err.length(), 0);
+            QueueMessage(cli, err);
          return;
     }
     
@@ -725,7 +725,7 @@ void Server::Mode(Client *cli, std::string cmd) {
         std::string modes = channel->GetModeString();
         // Append arguments like key and limit if set (optional but good)
         std::string msg = ":ircserv 324 " + cli->GetNickname() + " " + target + " " + modes + "\r\n";
-        send(cli->GetFd(), msg.c_str(), msg.length(), 0);
+        QueueMessage(cli, msg);
         return;
     }
     
@@ -738,7 +738,7 @@ void Server::Mode(Client *cli, std::string cmd) {
     
     if (!channel->IsAdmin(cli)) {
          std::string err = ":ircserv 482 " + cli->GetNickname() + " " + target + " :You're not channel operator\r\n";
-         send(cli->GetFd(), err.c_str(), err.length(), 0);
+            QueueMessage(cli, err);
          return;
     }
     
@@ -823,6 +823,6 @@ void Server::Mode(Client *cli, std::string cmd) {
                 finalMsg += " " + args[i];
         }
         finalMsg += "\r\n";
-        channel->Broadcast(finalMsg);
+        channel->Broadcast(this, finalMsg);
     }
 }

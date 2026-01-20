@@ -6,6 +6,7 @@
 #include <cstdlib>
 
 class Client;
+class Server;
 
 class Channel
 {
@@ -65,7 +66,7 @@ class Channel
         void AddInvited(std::string nick);
         bool IsInvited(std::string nick);
 
-        void Broadcast(std::string msg, int excludeFd = -1);
+        void Broadcast(Server *server, std::string msg, int excludeFd = -1);
         std::vector<Client*> GetClients() const { return Clients; }
 };
 

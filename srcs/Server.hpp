@@ -54,6 +54,11 @@ class Server
 
         void CloseFds();
         void ClearClients(int fd);
+
+        void QueueMessage(Client *cli, const std::string &msg);
+        bool HandleWrite(int fd);
+        Client* GetClientByFd(int fd);
+        void UpdatePollOut(int fd, bool enable);
 };
 
 #endif

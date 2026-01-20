@@ -4,6 +4,7 @@ Server::Server(int port, std::string password): Port(port), Password(password), 
     signal(SIGINT, SignalHandler);
     signal(SIGTERM, SignalHandler);
     signal(SIGSEGV, SignalHandler);
+    signal(SIGPIPE, SIG_IGN);
 };
 
 Server::~Server(){
@@ -67,6 +68,17 @@ void Server::CloseFds(){
         std::cout << RED << "Client " << clients[i]->GetFd() << " Disconnected" << RESET << std::endl;
         close(clients[i]->GetFd());
     }
+    for(size_t i = 0; i < clients.size(); i++){
+        delete clients[i];
+    }
+    clients.clear();
+
+    for(size_t i = 0; i < channels.size(); i++){
+        delete channels[i];
+    }
+    channels.clear();
+
+    fds.clear();
     if(SerSocketFd != -1){
         std::cout << RED << "Server <" << SerSocketFd << "> Disconnected" << RESET << std::endl;
         close(SerSocketFd);
@@ -93,6 +105,9 @@ void Server::SerSocket(){
 
     if(listen(SerSocketFd, SOMAXCONN) < 0) // listen for connections
         throw(std::runtime_error("listen failed"));
+
+    if(fcntl(SerSocketFd, F_SETFL, O_NONBLOCK) < 0)
+        throw(std::runtime_error("fcntl failed"));
 
     struct pollfd NewPollFd;
     NewPollFd.fd = SerSocketFd; //  add the server pocket to the pollfd
@@ -125,7 +140,15 @@ void Server::ServerInit()
                             // Current 'i' now points to the next element (or invalid)
                             // Decrement i so loop increment moves to correct next element
                             i--;
+                            continue;
                         }
+                    }
+                }
+                if (i < fds.size() && (fds[i].revents & POLLOUT))
+                {
+                    if (HandleWrite(fds[i].fd)) {
+                        i--;
+                        continue;
                     }
                 }
             }
@@ -152,6 +175,7 @@ void Server::AcceptNewClient(){
     if(fcntl(incofd, F_SETFL, O_NONBLOCK) < 0)
     {
         std::cerr << "fcntl() failed" << std::endl;
+        close(incofd);
         return;
     }
     
@@ -164,6 +188,66 @@ void Server::AcceptNewClient(){
     fds.push_back(NewPoll);
 
     std::cout << GREEN << "Client <" << incofd << "> Connected" << RESET << std::endl;
+}
+
+Client* Server::GetClientByFd(int fd) {
+    for (size_t i = 0; i < clients.size(); i++) {
+        if (clients[i]->GetFd() == fd)
+            return clients[i];
+    }
+    return NULL;
+}
+
+void Server::UpdatePollOut(int fd, bool enable) {
+    for (size_t i = 0; i < fds.size(); i++) {
+        if (fds[i].fd == fd) {
+            if (enable)
+                fds[i].events = POLLIN | POLLOUT;
+            else
+                fds[i].events = POLLIN;
+            break;
+        }
+    }
+}
+
+void Server::QueueMessage(Client *cli, const std::string &msg) {
+    if (!cli)
+        return;
+    cli->appendOutBuffer(msg);
+    UpdatePollOut(cli->GetFd(), true);
+}
+
+bool Server::HandleWrite(int fd) {
+    Client *cli = GetClientByFd(fd);
+    if (!cli) {
+        UpdatePollOut(fd, false);
+        return false;
+    }
+
+    if (!cli->hasOutData()) {
+        UpdatePollOut(fd, false);
+        return false;
+    }
+
+    const std::string &out = cli->getOutBuffer();
+    int flags = 0;
+#ifdef MSG_NOSIGNAL
+    flags = MSG_NOSIGNAL;
+#endif
+    ssize_t sent = send(fd, out.c_str(), out.length(), flags);
+    if (sent > 0) {
+        cli->consumeOutBuffer(static_cast<size_t>(sent));
+        if (!cli->hasOutData())
+            UpdatePollOut(fd, false);
+        return false;
+    }
+    if (sent == -1 && (errno == EAGAIN || errno == EWOULDBLOCK))
+        return false;
+
+    std::cout << RED << "Client <" << fd << "> Disconnected" << RESET << std::endl;
+    ClearClients(fd);
+    close(fd);
+    return true;
 }
 
 std::string Server::getClientHostname(int clientFd){

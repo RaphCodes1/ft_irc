@@ -13,6 +13,7 @@ class Client
         bool Registered;
         bool LoggedIn;
         std::string buffer;
+        std::string outBuffer;
     public:
         Client(int fd, const std::string &hostname);
         ~Client();
@@ -36,6 +37,11 @@ class Client
         void setBuffer(std::string buf) { buffer = buf; }
         std::string getBuffer()const { return buffer; }
         void clearBuffer() { buffer.clear(); }
+
+        void appendOutBuffer(const std::string &data) { outBuffer += data; }
+        void consumeOutBuffer(size_t count) { outBuffer.erase(0, count); }
+        const std::string &getOutBuffer() const { return outBuffer; }
+        bool hasOutData() const { return !outBuffer.empty(); }
 
         std::string getIpAdd()const {return this->IPadd;};
 };
