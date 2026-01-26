@@ -59,6 +59,9 @@ class Server
         bool HandleWrite(int fd);
         Client* GetClientByFd(int fd);
         void UpdatePollOut(int fd, bool enable);
+    private:
+        void JoinSingle(Client *cli, std::string channelName, std::string key);
+        void LeaveAllChannels(Client *cli);
 };
 
 #endif

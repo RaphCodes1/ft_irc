@@ -87,6 +87,16 @@ void Server::Ping(Client *cli, std::string cmd){
     QueueMessage(cli, pong);
 }
 
+static std::vector<std::string> Split(const std::string &s, char delimiter) {
+    std::vector<std::string> tokens;
+    std::string token;
+    std::istringstream tokenStream(s);
+    while (std::getline(tokenStream, token, delimiter)) {
+        tokens.push_back(token);
+    }
+    return tokens;
+}
+
 void Server::Join(Client *cli, std::string cmd){
     std::vector<std::string> args;
     std::istringstream iss(cmd);
@@ -96,17 +106,52 @@ void Server::Join(Client *cli, std::string cmd){
     }
 
     if (args.size() < 2) {
-        // ERR_NEEDMOREPARAMS (461)
         std::string err = ":ircserv 461 " + (cli->GetNickname().empty() ? "*" : cli->GetNickname()) + " JOIN :Not enough parameters\r\n";
         QueueMessage(cli, err);
         return;
     }
 
-    std::string channelName = args[1];
-    // Validate channel name (must start with #)
+    std::string channelList = args[1];
+    std::string keyList = (args.size() > 2) ? args[2] : "";
+
+    std::vector<std::string> channels = Split(channelList, ',');
+    std::vector<std::string> keys = Split(keyList, ',');
+
+    if (channels.size() > 15) {
+        channels.resize(15);
+    }
+
+    for (size_t i = 0; i < channels.size(); ++i) {
+        if (channels[i] == "0") {
+            LeaveAllChannels(cli);
+            continue;
+        }
+        std::string key = (i < keys.size()) ? keys[i] : "";
+        JoinSingle(cli, channels[i], key);
+    }
+}
+
+void Server::LeaveAllChannels(Client *cli) {
+    for (size_t i = 0; i < channels.size(); ) {
+        if (channels[i]->IsClientInChannel(cli)) {
+            std::string partMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->getIpAdd() + " PART " + channels[i]->GetName() + "\r\n";
+            channels[i]->Broadcast(this, partMsg);
+            
+            channels[i]->RemoveClient(cli);
+            channels[i]->RemoveInvited(cli->GetNickname());
+
+            if (channels[i]->GetClients().empty()) {
+                delete channels[i];
+                channels.erase(channels.begin() + i);
+                continue;
+            }
+        }
+        i++;
+    }
+}
+
+void Server::JoinSingle(Client *cli, std::string channelName, std::string key){
     if (channelName[0] != '#') {
-        // ERR_NOSUCHCHANNEL or ignore? Standard says it must start with # or & etc.
-        // For now simple check
         return;
     }
 
@@ -116,48 +161,38 @@ void Server::Join(Client *cli, std::string cmd){
         channel->AddAdmin(cli);
     }
 
-    // Check Modes
-    // 1. Invite Only (+i)
     if (channel->GetModeI()) {
         if (!channel->IsInvited(cli->GetNickname())) {
-             // ERR_INVITEONLYCHAN
              std::string err = ":ircserv 473 " + cli->GetNickname() + " " + channelName + " :Cannot join channel (+i)\r\n";
              QueueMessage(cli, err);
              return;
         }
     }
     
-    // 2. Limit (+l)
     if (channel->GetModeL()) {
         if (channel->GetClients().size() >= channel->GetLimit()) {
-            // ERR_CHANNELISFULL
             std::string err = ":ircserv 471 " + cli->GetNickname() + " " + channelName + " :Cannot join channel (+l)\r\n";
             QueueMessage(cli, err);
             return;
         }
     }
     
-    // 3. Key (+k)
     if (channel->GetModeK()) {
-        std::string key = "";
-        if (args.size() > 2) key = args[2];
         if (channel->GetKey() != key) {
-            // ERR_BADCHANNELKEY
             std::string err = ":ircserv 475 " + cli->GetNickname() + " " + channelName + " :Cannot join channel (+k)\r\n";
             QueueMessage(cli, err);
             return;
         }
     }
 
+    if (channel->IsClientInChannel(cli))
+        return;
+
     channel->AddClient(cli);
     
-    // Notify user joined
-    // :user!user@host JOIN :#channel
     std::string joinMsg = ":" + cli->GetNickname() + "!" + cli->GetUsername() + "@" + cli->getIpAdd() + " JOIN :" + channelName + "\r\n";
     channel->Broadcast(this, joinMsg);
     
-    // Send RPL_NAMREPLY (353)
-    // :ircserv 353 <user> = <channel> :<nick1> <nick2>
     std::string namesList = "";
     std::vector<Client*> clients = channel->GetClients();
     for (size_t i = 0; i < clients.size(); i++) {
@@ -171,15 +206,12 @@ void Server::Join(Client *cli, std::string cmd){
     std::string namReply = ":ircserv 353 " + cli->GetNickname() + " = " + channelName + " :" + namesList + "\r\n";
     QueueMessage(cli, namReply);
 
-    // Send RPL_ENDOFNAMES (366)
     std::string endNames = ":ircserv 366 " + cli->GetNickname() + " " + channelName + " :End of /NAMES list.\r\n";
     QueueMessage(cli, endNames);
     
-    // Send TOPIC if set
    if (!channel->GetTopic().empty()) {
-        // RPL_TOPIC
         std::string topicMsg = ":ircserv 332 " + cli->GetNickname() + " " + channelName + " :" + channel->GetTopic() + "\r\n";
-       QueueMessage(cli, topicMsg);
+        QueueMessage(cli, topicMsg);
    }
 }
 
