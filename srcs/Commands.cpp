@@ -417,6 +417,7 @@ void Server::Part(Client *cli, std::string cmd) {
     channel->Broadcast(this, partMsg);
     
     channel->RemoveClient(cli);
+    channel->RemoveInvited(cli->GetNickname());
     
     // If channel is empty, delete it (optional but good practice)
     if (channel->GetClients().empty()) {
@@ -530,6 +531,7 @@ void Server::Kick(Client *cli, std::string cmd) {
     channel->Broadcast(this, kickMsg); // Broadcast to everyone including target
 
     channel->RemoveClient(target);
+    channel->RemoveInvited(targetNick);
     
     // Check if channel empty
     if (channel->GetClients().empty()) {

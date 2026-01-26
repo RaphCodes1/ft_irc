@@ -69,13 +69,21 @@ std::string Channel::GetModeString() {
 }
 
 void Channel::AddInvited(std::string nick) {
-    InvitedNicks.push_back(nick);
+    InvitedNicks[nick] = std::time(NULL);
 }
 
 bool Channel::IsInvited(std::string nick) {
-    for(size_t i=0; i<InvitedNicks.size(); i++) {
-        if(InvitedNicks[i] == nick)
+    std::map<std::string, time_t>::iterator it = InvitedNicks.find(nick);
+    if (it != InvitedNicks.end()) {
+        if (std::difftime(std::time(NULL), it->second) < 60) {
             return true;
+        } else {
+            InvitedNicks.erase(it);
+        }
     }
     return false;
+}
+
+void Channel::RemoveInvited(std::string nick) {
+    InvitedNicks.erase(nick);
 }

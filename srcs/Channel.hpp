@@ -4,6 +4,8 @@
 #include "ircserv.hpp"
 #include "Client.hpp"
 #include <cstdlib>
+#include <map>
+#include <ctime>
 
 class Client;
 class Server;
@@ -23,7 +25,7 @@ class Channel
         bool ModeK; // Key needed
         bool ModeL; // User limit
         
-        std::vector<std::string> InvitedNicks;
+        std::map<std::string, time_t> InvitedNicks;
 
     public:
         Channel(std::string name);
@@ -65,6 +67,7 @@ class Channel
 
         void AddInvited(std::string nick);
         bool IsInvited(std::string nick);
+        void RemoveInvited(std::string nick);
 
         void Broadcast(Server *server, std::string msg, int excludeFd = -1);
         std::vector<Client*> GetClients() const { return Clients; }
