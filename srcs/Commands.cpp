@@ -277,6 +277,8 @@ void Server::Privmsg(Client *cli, std::string cmd){
              QueueMessage(dest, fullMsg);
         } else {
             // ERR_NOSUCHNICK
+            std::string err = ":ircserv 401 " + cli->GetNickname() + " " + target + " :No such nick/channel\r\n";
+            QueueMessage(cli, err);
         }
     }
 }
