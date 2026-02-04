@@ -50,6 +50,9 @@ void Server::ParseCommand(Client *cli, std::string cmd){
     {
        // Unknown command, ignore for now or send ERR?
        // std::cout << "Unknown command: " << args[0] << std::endl;
+        std::string nick = cli->GetNickname().empty() ? "*" : cli->GetNickname();
+        std::string err = ":ircserv 421 " + nick + " " + args[0] + " :Unknown command\r\n";
+        QueueMessage(cli, err);
     }
 }
 
@@ -261,6 +264,8 @@ void Server::Privmsg(Client *cli, std::string cmd){
             channel->Broadcast(this, fullMsg, cli->GetFd()); // Don't send back to sender
         } else {
              // ERR_NOSUCHCHANNEL
+            std::string err = ":ircserv 403 " + cli->GetNickname() + " " + target + " :No such channel\r\n";
+            QueueMessage(cli, err);
         }
     } else {
         // Private message to user
@@ -293,6 +298,8 @@ void Server::Pass(Client *cli, std::string cmd){
 
     if (args.size() < 2) {
         // ERR_NEEDMOREPARAMS
+        std::string err = ":ircserv 461 " + cli->GetNickname() + " PASS :Not enough parameters\r\n";
+        QueueMessage(cli, err);
         return;
     }
 
@@ -425,6 +432,8 @@ void Server::Part(Client *cli, std::string cmd) {
     
     if (args.size() < 2) {
         // ERR_NEEDMOREPARAMS
+        std::string err = ":ircserv 461 " + cli->GetNickname() + " PART :Not enough parameters\r\n";
+        QueueMessage(cli, err);
         return;
     }
     
@@ -770,6 +779,9 @@ void Server::Mode(Client *cli, std::string cmd) {
         // ERR_NOTONCHANNEL? OR just check operator?
         // Usually need to be on channel to set mode?
         // Let's assume yes.
+        std::string err = ":ircserv 442 " + cli->GetNickname() + " " + target + " :You're not on that channel\r\n";
+        QueueMessage(cli, err);
+        return;
     }
     
     if (!channel->IsAdmin(cli)) {
